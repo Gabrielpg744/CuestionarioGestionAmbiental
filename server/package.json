@@ -1,20 +1,36 @@
 {
   "name": "server",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "API del cuestionario de conciencia del SGA CIE",
+  "main": "src/index.js",
   "scripts": {
-  "dev": "node --watch src/index.js",
-  "start": "node src/index.js"
-},
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "migrate": "node scripts/migrate.js",
+    "probar-db": "node scripts/probar-db.js",
+    "lint": "eslint .",
+    "seed": "node scripts/seed.js",
+    "test": "vitest run"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "cors": "^2.8.6",
+    "bcryptjs": "^3.0.3",
+    "connect-pg-simple": "^10.0.0",
     "dotenv": "^18.0.6",
     "express": "^5.2.1",
+    "express-session": "^1.19.0",
     "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0",
+    "vitest": "^5.0.3"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

@@ -1,129 +1,83 @@
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
-const cors = require('cors');
-const pool = require('./db');
+const { pool } = require('./db');
+
+// standalone = login local con sesión; sso = login central del QMS (login.md §3).
+const AUTH_MODE = process.env.AUTH_MODE || 'standalone';
+const PORT = process.env.PORT || 3040;
+const CLIENT_DIST = path.join(__dirname, '..', '..', 'client', 'dist');
+
+if (AUTH_MODE !== 'standalone') {
+  throw new Error(`AUTH_MODE=${AUTH_MODE} aún no está implementado; usa standalone`);
+}
+if (!process.env.SESSION_SECRET) {
+  throw new Error('Falta SESSION_SECRET en server/.env');
+}
 
 const app = express();
-const PORT = process.env.PORT || 3001;
 
-app.use(cors());
 app.use(express.json());
 
-app.get('/api/estado', async (req, res) => {
-  try {
-    await pool.query('SELECT 1');
-    res.json({ ok: true, base: process.env.DB_NAME });
-  } catch (error) {
-    console.error('Error de conexión:', error.message);
-    res.status(500).json({
-      error: 'Error de conexión con la base de datos'
-    });
-  }
+// Configuración pública: el client la lee para saber en qué modo corre.
+app.get('/api/config', (req, res) => {
+  res.json({ auth_mode: AUTH_MODE });
 });
 
-app.post('/api/cuestionarios', async (req, res) => {
-  const {
-    numero_control,
-    departamento,
-    respuestas,
-    calificacion
-  } = req.body;
+const session = require('express-session');
+const PgSession = require('connect-pg-simple')(session);
+app.use(
+  session({
+    // Nombre propio: las cookies ignoran el puerto, y con el nombre por defecto
+    // (connect.sid) esta sesión y la de lab se pisarían en el mismo host.
+    name: 'cuestionarios.sid',
+    store: new PgSession({ pool, createTableIfMissing: true }),
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: { httpOnly: true, sameSite: 'lax', maxAge: 8 * 60 * 60 * 1000 },
+  }),
+);
 
-  if (
-    typeof numero_control !== 'string' ||
-    !numero_control.trim() ||
-    typeof departamento !== 'string' ||
-    !departamento.trim() ||
-    !respuestas ||
-    typeof respuestas !== 'object' ||
-    Array.isArray(respuestas)
-  ) {
-    return res.status(400).json({
-      error: 'Faltan el número de control, departamento o respuestas.'
+app.use('/api/auth', require('./routes/auth'));
+
+// Mientras un usuario deba cambiar su contraseña, solo puede usar /api/auth.
+app.use('/api', (req, res, next) => {
+  const u = req.session.user;
+  if (u && u.debe_cambiar_password && !req.path.startsWith('/auth/')) {
+    return res.status(403).json({
+      error: 'Debes cambiar tu contraseña antes de continuar',
+      code: 'CAMBIO_REQUERIDO',
     });
   }
+  next();
+});
 
-  const client = await pool.connect();
+app.use('/api/estado', require('./routes/estado'));
+app.use('/api/cuestionarios', require('./routes/cuestionarios'));
+app.use('/api/usuarios', require('./routes/usuarios'));
 
-  try {
-    await client.query('BEGIN');
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'Ruta no encontrada' });
+});
 
-    // Guardar el cuestionario y su calificación
-    const resultado = await client.query(
-      `INSERT INTO cuestionarios_enviados
-       (
-         numero_control,
-         departamento,
-         respuestas_correctas,
-         respuestas_incorrectas,
-         preguntas_calificadas,
-         calificacion
-       )
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, fecha_envio`,
-      [
-        numero_control.trim(),
-        departamento.trim(),
-        calificacion?.correctas ?? null,
-        calificacion?.incorrectas ?? null,
-        calificacion?.total ?? null,
-        calificacion?.porcentaje ?? null
-      ]
-    );
+// En producción el mismo proceso sirve el client compilado (SPA).
+if (fs.existsSync(CLIENT_DIST)) {
+  app.use(express.static(CLIENT_DIST));
+  app.use((req, res, next) => {
+    if (req.method !== 'GET') return next();
+    res.sendFile(path.join(CLIENT_DIST, 'index.html'));
+  });
+}
 
-    const cuestionario = resultado.rows[0];
-
-    // Guardar las respuestas individuales
-    for (const [clave, valor] of Object.entries(respuestas)) {
-      if (!/^\d+$/.test(clave)) continue;
-
-      const respuesta = {
-        valor,
-        ...(Object.prototype.hasOwnProperty.call(
-          respuestas,
-          `otro-${clave}`
-        )
-          ? { otro: respuestas[`otro-${clave}`] }
-          : {})
-      };
-
-      await client.query(
-        `INSERT INTO respuestas_cuestionario
-         (cuestionario_id, numero_pregunta, respuesta)
-         VALUES ($1, $2, $3::jsonb)`,
-        [
-          cuestionario.id,
-          Number(clave),
-          JSON.stringify(respuesta)
-        ]
-      );
-    }
-
-    await client.query('COMMIT');
-
-    res.status(201).json({
-      ok: true,
-      mensaje: 'Cuestionario guardado correctamente.',
-      id: cuestionario.id,
-      fecha_envio: cuestionario.fecha_envio
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-
-    console.error(
-      'Error al guardar cuestionario:',
-      error.message
-    );
-
-    res.status(500).json({
-      error: 'No se pudo guardar el cuestionario.'
-    });
-  } finally {
-    client.release();
-  }
+app.use((err, req, res, next) => {
+  if (err.status) return res.status(err.status).json({ error: err.message });
+  if (err.code === '23505') return res.status(409).json({ error: 'El registro ya existe' });
+  if (err.code === '23503') return res.status(400).json({ error: 'Referencia inválida' });
+  console.error(err);
+  res.status(500).json({ error: 'Error interno del servidor' });
 });
 
 app.listen(PORT, () => {
-  console.log(
-    `API de cuestionarios disponible en http://localhost:${PORT}`
-  );
+  console.log(`Servidor en http://localhost:${PORT}`);
 });

@@ -1,3 +1,5 @@
+-- Esquema inicial. Usa IF NOT EXISTS para adoptar bases creadas con el antiguo
+-- server/sql/tablas.sql, que no traía las columnas de calificación.
 
 CREATE TABLE IF NOT EXISTS cuestionarios_enviados (
     id BIGSERIAL PRIMARY KEY,
@@ -5,6 +7,12 @@ CREATE TABLE IF NOT EXISTS cuestionarios_enviados (
     departamento VARCHAR(100) NOT NULL,
     fecha_envio TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE cuestionarios_enviados
+    ADD COLUMN IF NOT EXISTS respuestas_correctas INTEGER,
+    ADD COLUMN IF NOT EXISTS respuestas_incorrectas INTEGER,
+    ADD COLUMN IF NOT EXISTS preguntas_calificadas INTEGER,
+    ADD COLUMN IF NOT EXISTS calificacion INTEGER;
 
 CREATE TABLE IF NOT EXISTS respuestas_cuestionario (
     id BIGSERIAL PRIMARY KEY,
