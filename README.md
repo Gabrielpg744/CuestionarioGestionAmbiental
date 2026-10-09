@@ -52,3 +52,42 @@ El client queda en http://localhost:5177 (con proxy de `/api` al server en `:304
 | `npm run lint` | ESLint en server y client |
 | `npm test` | Pruebas (Vitest) de la calificación y la validación de respuestas |
 | `npm run format` | Prettier en todo el repo |
+
+## Acceso desde otras computadoras
+
+El servidor escucha en todas las interfaces de red (`0.0.0.0`). En la máquina que
+hace de servidor:
+
+1. **Compilar y arrancar en modo producción**: un solo proceso sirve el API y la
+   interfaz en el puerto `3040`.
+
+   ```bash
+   npm run build
+   ```
+
+   ```bash
+   npm start
+   ```
+
+   Al arrancar imprime las direcciones de red (`En la red: http://<IP>:3040`). Usa
+   la de la red de la empresa; las `172.x` suelen ser adaptadores virtuales
+   (WSL, Hyper-V, Docker) y no sirven desde otro equipo.
+
+2. **Abrir el puerto en el firewall de Windows** (PowerShell como administrador).
+   La regla tiene que cubrir el perfil de red real del servidor; compruébalo con
+   `Get-NetConnectionProfile` (`Domain`, `Private` o `Public`) y ajusta `-Profile`:
+
+   ```bash
+   New-NetFirewallRule -DisplayName "Cuestionarios CIE (3040)" -Direction Inbound -Protocol TCP -LocalPort 3040 -Action Allow -Profile Domain,Private
+   ```
+
+3. **Probar desde otro equipo** (otra PC o un celular en la misma red):
+   `http://<IP-del-servidor>:3040`. Una prueba desde el propio servidor no revela
+   si el firewall bloquea el tráfico de fuera.
+
+Conviene que el servidor tenga **IP fija** (o un nombre en el DNS de la empresa) y
+que todos entren siempre por la misma dirección: las cookies de sesión van
+atadas al nombre del host (`login.md` §4.1).
+
+En desarrollo (`npm run dev`) Vite también escucha en la red (`:5177`), pero para
+que otros usen el sistema se usa `npm start`.

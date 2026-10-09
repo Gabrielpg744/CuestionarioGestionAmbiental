@@ -1,4 +1,5 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const express = require('express');
 const { pool } = require('./db');
@@ -78,6 +79,16 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Error interno del servidor' });
 });
 
-app.listen(PORT, () => {
+// 0.0.0.0: escucha en todas las interfaces, para que entren otras computadoras
+// de la red (además hay que abrir el puerto en el firewall; ver README).
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor en http://localhost:${PORT}`);
+  for (const ip of ipsDeRed()) console.log(`  En la red: http://${ip}:${PORT}`);
 });
+
+function ipsDeRed() {
+  return Object.values(os.networkInterfaces())
+    .flat()
+    .filter((i) => i.family === 'IPv4' && !i.internal)
+    .map((i) => i.address);
+}
